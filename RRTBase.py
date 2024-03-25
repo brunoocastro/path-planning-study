@@ -6,13 +6,14 @@ import pygame
 class RRTMap:
     MapSettings = {
         "colors": {
-            "background": (255, 255, 255),
-            "obstacle": (0, 0, 255),
+            "background": (130, 130, 200),
+            "obstacle": (0, 0, 0),
+            # "obstacle": (255, 10, 23),
             "start": (0, 255, 0),
             "goal": (255, 0, 0),
             "path": (0, 255, 255),
             "tree": (0, 0, 0),
-            "tree_point": (0, 0, 0),
+            "tree_point": (0, 55, 55),
             "bias": (255, 0, 255),
             "expand": (255, 255, 0),
         }
@@ -36,7 +37,7 @@ class RRTMap:
         )
         self.map.fill(self.MapSettings["colors"]["background"])
         self.nodeRad = 2
-        self.nodeThickness = 1
+        self.nodeThickness = 0
         self.edgeThickness = 1
 
         self.obstacles = []
@@ -113,17 +114,18 @@ class RRTGraph:
 
         return (upperCornerX, upperCornerY)
 
-    def makeobs(self):
+    def generateObstacles(
+        self,
+    ):
         obsList = []
 
         for i in range(0, self.obsNumber):
             obstacle = None
-            startGoalColumn = (
-                True  # Indicates if the obstacle is in the start or goal column
-            )
+            # Indicates if the obstacle is in the start or goal column
+            blockedPositionCollision = True
 
             # Make sure the obstacle is not in the start or goal points
-            while startGoalColumn:
+            while blockedPositionCollision:
                 upperCorner = self.makeRandomRect()
                 obstacle = pygame.Rect(
                     upperCorner, (self.obsDimensions, self.obsDimensions)
@@ -132,32 +134,33 @@ class RRTGraph:
                 if obstacle.collidepoint(self.start) or obstacle.collidepoint(
                     self.goal
                 ):
-                    startGoalColumn = True
+                    blockedPositionCollision = True
                 else:
-                    startGoalColumn = False
+                    blockedPositionCollision = False
 
             obsList.append(obstacle)
 
         self.obstacles = obsList.copy()
+        print("Amount of obstacles", self.obstacles)
         return obsList
 
-    def add_node(self, posIndex, nodeX, nodeY):
-        self.x.insert(posIndex, nodeX)
+    def addNode(self, index, X, Y):
+        self.x.insert(index, X)
         # WHY IT WAS DIFFERENT ?
-        self.y.append(nodeY)
+        self.y.append(Y)
 
-    def remove_node(self, nodeIndex):
-        print((len(self.x), len(self.y)))
-        self.x.pop(nodeIndex)
-        self.y.pop(nodeIndex)
+    def removeNode(self, index):
+        self.x.pop(index)
+        self.y.pop(index)
 
-    def add_edge(self, parent, child):
+    def addEdge(self, parent, child):
+        print("Add edge", child, "to", parent)
         self.parent.insert(child, parent)
 
-    def remove_edge(self, childIndex):
+    def removeEdge(self, childIndex):
         self.parent.pop(childIndex)
 
-    def number_of_nodes(self):
+    def numberOfNodes(self):
         return len(self.x)
 
     def distance(self, startIndex, finishIndex):
@@ -166,13 +169,16 @@ class RRTGraph:
         (finishX, finishY) = (self.x[finishIndex], self.y[finishIndex])
 
         # Calculus of the hypotenuse of a right triangle
-        px = float(finishX) - float(startX)
-        py = float(finishY) - float(startY)
-        return (px**2 + py**2) ** 0.5
+        px = (float(startX) - float(finishX)) ** 2
+        py = (float(startY) - float(finishY)) ** 2
 
-    def generate_random_sample(self):
-        x = random.uniform(0, self.mapWidth)
-        y = random.uniform(0, self.mapHeight)
+        hypotenuse = (px + py) ** 0.5
+
+        return hypotenuse
+
+    def generateRandomPosition(self):
+        x = int(random.uniform(0, self.mapWidth))
+        y = int(random.uniform(0, self.mapHeight))
 
         return (x, y)
 
@@ -190,18 +196,15 @@ class RRTGraph:
 
         return nearestNode
 
-    def isFree(self):
-        last_number_id = self.number_of_nodes() - 1
-
-        (x, y) = (self.x[last_number_id], self.y[last_number_id])
-
+    def isFree(self, x, y):
         obs = self.obstacles.copy()
 
         # For each obj, verify if it has
         while len(obs) > 0:
             obstacle = obs.pop(0)
             if obstacle.collidepoint(x, y):
-                self.remove_node(last_number_id)
+                print("Collision Detected. Is not free")
+                # self.removeNode(numberOfNodes)
                 return False
 
         return True
@@ -218,7 +221,11 @@ class RRTGraph:
                 x = x1 * u + x2 * (1 - u)
                 y = y1 * u + y2 * (1 - u)
 
-                if obstacle.collidepoint(x, y):
+                # print("obs", obstacle, obstacle.collidepoint(x, y))
+                if self.isFree(x, y):
+                    # print("Collision Detected. Removing node", self.numberOfNodes() - 1)
+                    # self.numberOfNodes()
+                    # pygame.draw.circle(self.map, (0, 0, 255), (x, y), 5, 0)
                     return True
 
         return False
@@ -227,13 +234,16 @@ class RRTGraph:
         (x1, y1) = (self.x[nodeOneIdx], self.y[nodeOneIdx])
         (x2, y2) = (self.x[nodeTwoIdx], self.y[nodeTwoIdx])
 
-        if self.crossObstacle(x1, x2, y1, y2):
+        cross = self.crossObstacle(x1, x2, y1, y2)
+
+        if cross:
+            print("Must remove because cross obtacle")
             # If has collision, remove that node because it has not utility
-            self.remove_node(nodeTwoIdx)
+            self.removeNode(nodeTwoIdx)
             return False
 
         else:
-            self.add_edge(nodeOneIdx, nodeTwoIdx)
+            self.addEdge(nodeOneIdx, nodeTwoIdx)
             return True
 
     def step(self, nearNode, randomNode, maxDistance=35):
@@ -254,17 +264,19 @@ class RRTGraph:
                 int(nearY + maxDistance * math.sin(theta)),
             )
 
-            self.remove_node(randomNode)
+            self.removeNode(randomNode)
 
+            # Check if the new created node found the goal
             if (abs(x - self.goal[0]) < maxDistance) and (
                 abs(y - self.goal[1]) < maxDistance
             ):
-                self.add_node(randomNode, self.goal[0], self.goal[1])
+                self.addNode(randomNode, self.goal[0], self.goal[1])
                 self.goalState = randomNode
                 self.goalFlag = True
 
             else:
-                self.add_node(randomNode, x, y)
+                print("Random node", randomNode, "x", x, "y", y)
+                self.addNode(randomNode, x, y)
 
     def path_to_goal(self):
         pass
@@ -276,9 +288,10 @@ class RRTGraph:
         """
         Go through the nearest neighbor
         """
-        newNode = self.number_of_nodes()
+        newNode = self.numberOfNodes()
+        print("Number of Nodes", newNode, "goal node", goalNode)
 
-        self.add_node(newNode, goalNode[0], goalNode[1])
+        self.addNode(newNode, goalNode[0], goalNode[1])
         nearNode = self.nearest_neighbor(newNode)
         self.step(nearNode, newNode)
         self.connect(nearNode, newNode)
@@ -289,15 +302,18 @@ class RRTGraph:
         """
         Go explore the map by random sample node
         """
-        newNode = self.number_of_nodes()
+        newNode = self.numberOfNodes()
 
-        x, y = self.generate_random_sample()
-        self.add_node(newNode, x, y)
-
-        if self.isFree():
+        x, y = self.generateRandomPosition()
+        if self.isFree(x, y):
             nearNode = self.nearest_neighbor(newNode)
-            self.step(nearNode, newNode)
-            self.connect(nearNode, newNode)
+            cross = self.crossObstacle(self.x[nearNode], x, self.y[nearNode], y)
+            print("Cross", cross)
+            # self.removeNode(newNode)
+            if not cross:
+                self.addNode(newNode, x, y)
+                self.step(nearNode, newNode)
+                self.connect(nearNode, newNode)
 
         return self.x, self.y, self.parent
 
